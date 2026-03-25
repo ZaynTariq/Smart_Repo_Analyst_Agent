@@ -1,0 +1,13 @@
+You are an AI software engineer.
+
+Given the following repository context:
+{{context}}
+
+Answer:
+
+1. What is the purpose of this repository?
+2. What technologies are used?
+3. What are the key components?
+4. Provide a short summary.
+
+Be clear and concise.

@@ -1,0 +1,58 @@
+@page "/"
+@inject Analyst.Agent.Host.Services.AgentService AgentService
+@rendermode InteractiveServer
+
+<h3>Smart Repository Analyst Agent</h3>
+
+<div>
+    <input @bind="RepoUrl" placeholder="https://github.com/owner/repo" style="width:60%" />
+    <button @onclick="Analyze" disabled="@(IsLoading)">Analyze Repository</button>
+</div>
+
+@if (IsLoading)
+{
+    <p>Analyzing... please wait.</p>
+}
+
+@if (Result != null)
+{
+    <h4>Analysis Result</h4>
+    <pre>@Result.OriginalAnswer</pre>
+
+    <h4>Reflection Improved Answer</h4>
+    <pre>@Result.ImprovedAnswer</pre>
+
+    <h4>Evaluation Score: @Result.Score</h4>
+    <pre>@Result.EvaluationReason</pre>
+}
+
+@code {
+    private string RepoUrl { get; set; } = string.Empty;
+
+    private Analyst.Agent.Host.Models.AgentResult? Result { get; set; }
+    private bool IsLoading { get; set; }
+
+    private async Task Analyze()
+    {
+        IsLoading = true;
+        Result = null;
+        try
+        {
+            Result = await AgentService.AnalyzeRepositoryAsync(RepoUrl);
+        }
+        catch (Exception ex)
+        {
+            Result = new Analyst.Agent.Host.Models.AgentResult
+            {
+                OriginalAnswer = "Error: " + ex.Message,
+                ImprovedAnswer = "",
+                Score = 0,
+                EvaluationReason = ""
+            };
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+}
