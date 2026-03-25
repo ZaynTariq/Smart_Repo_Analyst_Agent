@@ -13,17 +13,19 @@ namespace Analyst.Agent.Host.Services;
 public class RepoService
 {
     private readonly HttpClient _http;
+    private readonly IConfiguration _configuration;
 
-    public RepoService(HttpClient http)
+    public RepoService(HttpClient http, IConfiguration configuration)
     {
         _http = http;
+        _configuration = configuration;
         _http.DefaultRequestHeaders.UserAgent.ParseAdd("SmartRepoAnalystAgent");
 
         // Optional: support GitHub token via environment variable to avoid rate limits and access private repos.
-        var token = "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";
-        if (!string.IsNullOrWhiteSpace(token))
+        var token = _configuration.GetSection("GithubToken");
+        if (!string.IsNullOrWhiteSpace(token?.Value))
         {
-            _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token.Value);
         }
     }
 
