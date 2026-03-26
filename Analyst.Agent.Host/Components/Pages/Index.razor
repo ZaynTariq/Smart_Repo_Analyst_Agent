@@ -1,54 +1,160 @@
 @page "/"
 @inject Analyst.Agent.Host.Services.AgentService AgentService
+@using Markdig
 @rendermode InteractiveServer
 
-<h3>Smart Repository Analyst Agent</h3>
+<style>
+    .card { background: #fff; border-radius: 10px; box-shadow: 0 6px 18px rgba(0,0,0,0.08); padding: 18px; }
+    .hero { background: linear-gradient(90deg,#5b21b6,#0ea5e9); color: #fff; border-radius: 12px; padding: 20px; }
+    .btn-primary { background:#4f46e5; color:#fff; border:none; padding:10px 16px; border-radius:8px; }
+    .btn-secondary { background:#e6e6ff; color:#111827; border:none; padding:10px 12px; border-radius:8px; }
+    .status { font-family: monospace; font-size: 0.95rem; max-height:220px; overflow:auto; background:#f8fafc; padding:10px; border-radius:8px; }
+    .input { width:100%; padding:10px; border-radius:8px; border:1px solid #e5e7eb; }
+    .left-col { display:flex; flex-direction:column; gap:12px; }
+    .prose { max-width: 100%; }
+</style>
 
-<div>
-    <input @bind="RepoUrl" placeholder="https://github.com/owner/repo" style="width:60%" />
-    <button @onclick="Analyze" disabled="@(IsLoading)">Analyze Repository</button>
+<div class="container" style="padding:24px;">
+    <div class="hero">
+        <h1 style="margin:0;font-size:1.6rem;font-weight:700;">Smart Repository Analyst Agent</h1>
+        <p style="margin:6px 0 0 0; opacity:0.95;">Analyze GitHub repositories using RAG + Reflection. Private repo support via PAT.</p>
+    </div>
+
+    <div style="gap:18px; margin-top:18px;">
+        <div class="card left-col">
+            <label class="font-bold">Repository URL</label>
+            <input class="input" @bind="RepoUrl" placeholder="https://github.com/owner/repo" />
+
+            <div style="display:flex; gap:8px; align-items:center; margin-top:6px;">
+                <label style="margin:0;">Repository Type</label>
+                <select @onchange="RepoTypeChanged" style="padding:8px;border-radius:6px;border:1px solid #e5e7eb;">
+                    <option class="dropdown-item" value="false">Public</option>
+                    <option class="dropdown-item" value="true">Private (requires PAT)</option>
+                </select>
+            </div>
+
+            @if (IsPrivate)
+            {
+                <div>
+                    <label class="font-bold">GitHub Personal Access Token (PAT)</label>
+                    <input class="input" @bind="GitHubToken" placeholder="ghp_xxx (will be used for this session only)" />
+                    <small style="color:#6b7280;">Token is used only in-memory for this request.</small>
+                </div>
+            }
+
+            <div style="display:flex; gap:12px; margin-top:12px;">
+                <button class="btn-primary" @onclick="Analyze" disabled="@(IsLoading)">
+                    @(IsLoading ? "Analyzing..." : "Analyze Repository")
+                </button>
+                <button class="btn-secondary" @onclick="Reset">Reset</button>
+            </div>
+
+            <div style="margin-top:12px;">
+                <h4 style="margin:0 0 8px 0;">Backend Status</h4>
+                <div class="status">
+                    @if (StatusLog.Count == 0)
+                    {
+                        <div>No activity yet.</div>
+                    }
+                    else
+                    {
+                        foreach (var s in StatusLog)
+                        {
+                            <div>@((MarkupString)System.Net.WebUtility.HtmlEncode(s))</div>
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="container" style="padding:24px">
+    <div class="card">
+        <h4 style="margin-top:0;">Analysis Result</h4>
+        @if (IsLoading)
+        {
+            <div style="padding:24px; text-align:center;">Processing... please wait.</div>
+        }
+        else if (!string.IsNullOrEmpty(HtmlResult))
+        {
+            <div class="prose" style="padding:8px;">
+                @((MarkupString)HtmlResult)
+            </div>
+        }
+        else
+        {
+            <div style="color:#6b7280;">No result yet. Enter a repo URL and click Analyze.</div>
+        }
+    </div>
 </div>
 
-@if (IsLoading)
-{
-    <p>Analyzing... please wait.</p>
-}
-
-@if (Result != null)
-{
-    <h4>Analysis Result</h4>
-    <pre>@Result.OriginalAnswer</pre>
-
-    <h4>Reflection Improved Answer</h4>
-    <pre>@Result.ImprovedAnswer</pre>
-
-    <h4>Evaluation Score: @Result.Score</h4>
-    <pre>@Result.EvaluationReason</pre>
-}
 
 @code {
     private string RepoUrl { get; set; } = string.Empty;
+    private bool IsPrivate { get; set; }
+    private string GitHubToken { get; set; } = string.Empty;
 
-    private Analyst.Agent.Host.Models.AgentResult? Result { get; set; }
     private bool IsLoading { get; set; }
+    private List<string> StatusLog { get; } = new();
+    private string HtmlResult { get; set; } = string.Empty;
+
+    private void Log(string msg)
+    {
+        // prepend timestamp and keep only recent 200 lines
+        var entry = $"[{DateTime.Now:HH:mm:ss}] {msg}";
+        StatusLog.Insert(0, entry);
+        if (StatusLog.Count > 200) StatusLog.RemoveRange(200, StatusLog.Count - 200);
+        StateHasChanged();
+    }
+
+    private void RepoTypeChanged(ChangeEventArgs e)
+    {
+        // Clear PAT if switching to public
+        var value = bool.Parse(e.Value!.ToString()!);
+        IsPrivate = value;
+        if (!IsPrivate)
+        {
+            GitHubToken = string.Empty;
+        }
+    }
+    private void Reset()
+    {
+        RepoUrl = string.Empty;
+        IsPrivate = false;
+        GitHubToken = string.Empty;
+        StatusLog.Clear();
+        HtmlResult = string.Empty;
+    }
 
     private async Task Analyze()
     {
         IsLoading = true;
-        Result = null;
+        StatusLog.Clear();
+        HtmlResult = string.Empty;
+
         try
         {
-            Result = await AgentService.AnalyzeRepositoryAsync(RepoUrl);
+            if (IsPrivate && string.IsNullOrWhiteSpace(GitHubToken))
+            {
+                Log("Private repo selected but no PAT provided.");
+                return;
+            }
+
+            // call AgentService with a status callback and optional PAT
+            Log("Starting analysis workflow...");
+
+            var result = await AgentService.AnalyzeRepositoryAsync(RepoUrl, (s) => Log(s), IsPrivate ? GitHubToken : null);
+
+            // Final improved answer is expected to be markdown
+            var pipeline = new MarkdownPipelineBuilder().UseAdvancedExtensions().Build();
+            HtmlResult = Markdown.ToHtml(result.ImprovedAnswer ?? result.OriginalAnswer ?? "", pipeline);
+
+            Log($"Completed. Final score: {result.Score}");
         }
         catch (Exception ex)
         {
-            Result = new Analyst.Agent.Host.Models.AgentResult
-            {
-                OriginalAnswer = "Error: " + ex.Message,
-                ImprovedAnswer = "",
-                Score = 0,
-                EvaluationReason = ""
-            };
+            Log($"Error: {ex.Message}");
+            HtmlResult = $"<pre style=\"color:red;\">{System.Net.WebUtility.HtmlEncode(ex.ToString())}</pre>";
         }
         finally
         {

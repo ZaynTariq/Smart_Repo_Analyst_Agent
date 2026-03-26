@@ -2,6 +2,7 @@ using Analyst.Agent.Host.Components;
 using Analyst.Agent.Host.Services;
 using Azure;
 using Azure.AI.OpenAI;
+using MudBlazor.Services;
 using OpenAI;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -36,7 +37,7 @@ services.AddSingleton<RagService>();
 services.AddSingleton<ReflectionService>();
 services.AddSingleton<EvaluationService>();
 services.AddSingleton<AgentService>();
-
+builder.Services.AddMudServices();
 // Blazor components registration
 services.AddRazorComponents().AddInteractiveServerComponents();
 
@@ -55,6 +56,7 @@ app.UseStaticFiles();
 app.UseRouting();
 app.UseAuthorization();
 app.UseAntiforgery();
+
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
 
 app.Run();
