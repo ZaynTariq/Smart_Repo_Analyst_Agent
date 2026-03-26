@@ -1,0 +1,58 @@
+flowchart LR
+  %% Core user interaction and pipeline
+  U[User (Browser)] --> UI[Index.razor UI<br/>(Enter repo URL, optional PAT)]
+  UI -->|Repo URL / PAT| AgentService[AgentService<br/>(orchestrator)]
+
+  subgraph FetchAndPrep ["Data Preparation"]
+    RepoSvc[RepoService<br/>(GitHub Contents API)] --> Files[Fetched files<br/>(README + code/text)]
+    Files --> Chunker[TextChunker<br/>(sentence-based chunks, overlap)]
+    Chunker --> Chunks[Chunks (~300–500 words)]
+  end
+
+  subgraph EmbeddingAndStore ["Vectorization & Store"]
+    Chunks --> EmbeddingSvc[EmbeddingService<br/>(Azure OpenAI embeddings — batched)]
+    EmbeddingSvc --> VectorStore[VectorStore<br/>(in-memory, cosine similarity)]
+  end
+
+  subgraph ReasoningLoop ["RAG → LLM → Reflection Loop"]
+    AgentService -->|retrieve| VectorStore
+    VectorStore --> Rag[RagService<br/>(top-K retrieval + prompt)]
+    Rag --> Chat[Azure OpenAI Chat<br/>(analysis model)]
+    Chat --> Answer[Initial Answer (Markdown)]
+
+    Answer --> Reflection[ReflectionService<br/>(LLM self-review & rewrite)]
+    Reflection --> Evaluation[EvaluationService<br/>(LLM scores 1–10)]
+    Evaluation -- score < 8 --> Reflection
+    Evaluation -- score ≥ 8 --> Final[Final Answer (Markdown)]
+  end
+
+  Final --> UI
+
+  %% Side panels: technologies and run instructions
+  Tech[Technologies / Libraries:
+  • .NET 8 (Blazor Server)
+  • Azure.AI.OpenAI (chat + embeddings)
+  • Microsoft.SemanticKernel (conceptual usage)
+  • Markdig (Markdown → HTML)
+  • HttpClient (GitHub API)
+  • In-memory vector store (custom)
+  ]
+
+  Run[How to run (quick):
+  1) Set Azure OpenAI values in __appsettings.json__:
+     - AzureOpenAI:Endpoint, ApiKey, ChatDeployment, EmbeddingDeployment
+  2) (Optional) Use GitHub PAT for private repos (enter in UI)
+  3) Build & run:
+     dotnet restore
+     dotnet build
+     dotnet run --project Analyst.Agent.Host
+  4) Open browser → https://localhost:5001, enter repo URL, click Analyze
+  ]
+
+  UI -.-> Tech
+  UI -.-> Run
+
+  %% Notes
+  classDef note fill:#f3f4f6,stroke:#c7c7c7;
+  Tech:::note
+  Run:::note
