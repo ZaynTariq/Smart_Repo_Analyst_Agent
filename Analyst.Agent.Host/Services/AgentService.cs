@@ -1,4 +1,5 @@
 using Analyst.Agent.Host.Models;
+using static System.Formats.Asn1.AsnWriter;
 
 namespace Analyst.Agent.Host.Services;
 
@@ -38,66 +39,74 @@ public class AgentService
     /// </summary>
     public async Task<AgentResult> AnalyzeRepositoryAsync(string repoUrl, Action<string>? statusCallback = null, string? githubToken = null)
     {
-        statusCallback?.Invoke("Starting repository fetch...");
-        var repo = await _repoService.FetchRepositoryAsync(repoUrl, maxFiles: 20, githubToken: githubToken);
-
-        statusCallback?.Invoke("Chunking repository content...");
-        var chunks = _chunker.ChunkText(repo.Combined ?? string.Empty);
-        statusCallback?.Invoke($"Created {chunks.Count} chunks.");
-
-        statusCallback?.Invoke("Generating embeddings (batched)...");
-        _vectorStore.Clear();
-        var embeddings = await _embeddingService.GenerateEmbeddingsAsync(chunks);
-        for (int i = 0; i < chunks.Count; i++)
+        try
         {
-            var emb = (i < embeddings.Count) ? embeddings[i] : Array.Empty<float>();
-            _vectorStore.Add(chunks[i], emb);
-        }
-        statusCallback?.Invoke("Embeddings stored in vector store.");
+            statusCallback?.Invoke("Starting repository fetch...");
+            var repo = await _repoService.FetchRepositoryAsync(repoUrl, maxFiles: 20, githubToken: githubToken);
 
-        statusCallback?.Invoke("Running initial RAG to produce answer...");
-        var originalAnswer = await _ragService.GenerateAnswerAsync("Analyze this repository", topK: 3);
+            statusCallback?.Invoke("Chunking repository content...");
+            var chunks = _chunker.ChunkText(repo.Combined ?? string.Empty);
+            statusCallback?.Invoke($"Created {chunks.Count} chunks.");
 
-        statusCallback?.Invoke("Evaluating initial answer...");
-        var (score, reason) = await _evaluation_service_EvaluateAsync(originalAnswer);
-
-        // Loop: reflect and re-evaluate until score >= 8 or max iterations reached
-        int iter = 0;
-        const int maxIter = 5;
-        var currentAnswer = originalAnswer;
-        while (score < 8 && iter < maxIter)
-        {
-            iter++;
-            statusCallback?.Invoke($"Reflection iteration {iter}: improving answer...");
-            currentAnswer = await _reflectionService.ReflectAsync(currentAnswer);
-
-            statusCallback?.Invoke($"Re-evaluating after reflection (iteration {iter})...");
-            (score, reason) = await _evaluation_service_EvaluateAsync(currentAnswer);
-            statusCallback?.Invoke($"Score after iteration {iter}: {score}");
-        }
-
-        statusCallback?.Invoke("Finished processing.");
-
-        return new AgentResult
-        {
-            OriginalAnswer = originalAnswer,
-            ImprovedAnswer = currentAnswer,
-            Score = score,
-            EvaluationReason = reason
-        };
-
-        // Local helper to call evaluation service and handle exceptions
-        async Task<(int, string)> _evaluation_service_EvaluateAsync(string ans)
-        {
-            try
+            statusCallback?.Invoke("Generating embeddings (batched)...");
+            _vectorStore.Clear();
+            var embeddings = await _embeddingService.GenerateEmbeddingsAsync(chunks);
+            for (int i = 0; i < chunks.Count; i++)
             {
-                return await _evaluationService.EvaluateAsync(ans);
+                var emb = (i < embeddings.Count) ? embeddings[i] : Array.Empty<float>();
+                _vectorStore.Add(chunks[i], emb);
             }
-            catch (Exception ex)
+            statusCallback?.Invoke("Embeddings stored in vector store.");
+
+            statusCallback?.Invoke("Running initial RAG to produce answer...");
+            var originalAnswer = await _ragService.GenerateAnswerAsync("Analyze this repository", topK: 3);
+
+            statusCallback?.Invoke("Evaluating initial answer...");
+            var (score, reason) = await _evaluation_service_EvaluateAsync(originalAnswer);
+
+            // Loop: reflect and re-evaluate until score >= 8 or max iterations reached
+            int iter = 0;
+            const int maxIter = 5;
+            var currentAnswer = originalAnswer;
+            while (score < 8 && iter < maxIter)
             {
-                statusCallback?.Invoke($"Evaluation failed: {ex.Message}");
-                return (0, $"Evaluation failed: {ex.Message}");
+                iter++;
+                statusCallback?.Invoke($"Reflection iteration {iter}: improving answer...");
+                currentAnswer = await _reflectionService.ReflectAsync(currentAnswer);
+
+                statusCallback?.Invoke($"Re-evaluating after reflection (iteration {iter})...");
+                (score, reason) = await _evaluation_service_EvaluateAsync(currentAnswer);
+                statusCallback?.Invoke($"Score after iteration {iter}: {score}");
             }
+
+            statusCallback?.Invoke("Finished processing.");
+
+            return new AgentResult
+            {
+                OriginalAnswer = originalAnswer,
+                ImprovedAnswer = currentAnswer,
+                Score = score,
+                EvaluationReason = reason
+            };
+
+            // Local helper to call evaluation service and handle exceptions
+            async Task<(int, string)> _evaluation_service_EvaluateAsync(string ans)
+            {
+                try
+                {
+                    return await _evaluationService.EvaluateAsync(ans);
+                }
+                catch (Exception ex)
+                {
+                    statusCallback?.Invoke($"Evaluation failed: {ex.Message}");
+                    return (0, $"Evaluation failed: {ex.Message}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            statusCallback?.Invoke($"Error during process: {ex.Message}");
+            return new AgentResult();
         }
     }
 }

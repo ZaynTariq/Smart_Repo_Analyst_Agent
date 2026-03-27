@@ -56,6 +56,7 @@ public class RepoService
             var toVisit = new Queue<string>();
             toVisit.Enqueue(rootApi);
 
+            bool isFirstCall = true;
             while (toVisit.Count > 0 && files.Count < maxFiles)
             {
                 var api = toVisit.Dequeue();
@@ -63,6 +64,10 @@ public class RepoService
                 if (!resp.IsSuccessStatusCode)
                 {
                     // skip on errors, continue
+                    if (isFirstCall)
+                    {
+                        throw new InvalidOperationException("Unable to fetch remote repository");
+                    }
                     continue;
                 }
 
